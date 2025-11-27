@@ -1,4 +1,8 @@
 #include <raylib.h>
+#include <ixwebsocket/IXNetSystem.h>
+#include <ixwebsocket/IXWebSocket.h>
+#include <ixwebsocket/IXUserAgent.h>
+#include <iostream>
 
 int main(int argc, char *argv[]) {
   InitWindow(640, 480, "jeu");

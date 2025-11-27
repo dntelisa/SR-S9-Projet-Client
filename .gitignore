@@ -21,3 +21,4 @@ CMakeUserPresets.json
 .cache
 build*/
 *old*
+.vscode
