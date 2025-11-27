@@ -18,7 +18,6 @@ FetchContent_Declare(
   GIT_TAG 5.5
   GIT_SHALLOW 1
 )
-FetchContent_MakeAvailable(raylib)
 
 FetchContent_Declare(
   spdlog
@@ -26,7 +25,17 @@ FetchContent_Declare(
   GIT_TAG v1.15.3
   GIT_SHALLOW 1
 )
+
+FetchContent_Declare(
+  ixwebsocket
+  GIT_REPOSITORY https://github.com/machinezone/IXWebSocket
+  GIT_TAG v11.4.6
+  GIT_SHALLOW 1
+)
+
+FetchContent_MakeAvailable(raylib)
 FetchContent_MakeAvailable(spdlog)
+FetchContent_MakeAvailable(ixwebsocket)
 
 # targets --------------------------------------------------------------------#
 
@@ -43,4 +52,5 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
   raylib
   spdlog
+  ixwebsocket
 )
