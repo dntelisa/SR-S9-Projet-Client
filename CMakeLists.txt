@@ -33,9 +33,17 @@ FetchContent_Declare(
   GIT_SHALLOW 1
 )
 
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.2
+  GIT_SHALLOW 1
+)
+
 FetchContent_MakeAvailable(raylib)
 FetchContent_MakeAvailable(spdlog)
 FetchContent_MakeAvailable(ixwebsocket)
+FetchContent_MakeAvailable(nlohmann_json)
 
 # targets --------------------------------------------------------------------#
 
@@ -53,4 +61,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   raylib
   spdlog
   ixwebsocket
+  nlohmann_json::nlohmann_json
 )
