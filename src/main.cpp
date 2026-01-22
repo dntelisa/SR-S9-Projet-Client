@@ -104,6 +104,10 @@ int main(int argc, char *argv[]) {
           eventLog.push_front(ev);
           if (eventLog.size() > 6) eventLog.pop_back();
           std::cout << "event: " << ev << std::endl;
+        } else if (t == "game_over") {
+          std::cout << "GAME OVER!" << std::endl;
+          connStatus = "GAME OVER";
+          // Add variable "isGameOver" to indicate game over state and release display 
         } else {
           std::cout << "msg: " << j.dump() << std::endl;
         }
@@ -290,6 +294,28 @@ int main(int argc, char *argv[]) {
       idx++;
       if (idx >= 6) break;
     }
+    if (connStatus == "GAME OVER") {
+        DrawRectangle(0, 0, width, height, Fade(BLACK, 0.7f));
+        DrawText("GAME OVER", width/2 - 100, height/2 - 20, 40, RED);
+        
+        // Display win/lose based on scores
+        if (!selfID.empty() && players.count(selfID)) {
+            auto &selfPlayer = players[selfID];
+            bool isWinner = true;
+            for (auto &kv : players) {
+                if (kv.first != selfID && kv.second.score >= selfPlayer.score) {
+                    isWinner = false;
+                    break;
+                }
+            }
+            if (isWinner) {
+                DrawText("YOU WIN!", width/2 - 80, height/2 + 40, 30, GREEN);
+            } else {
+                DrawText("YOU LOSE!", width/2 - 80, height/2 + 40, 30, RED);
+            }
+        }
+    }
+
     EndDrawing();
   }
 
