@@ -60,6 +60,8 @@ int main(int argc, char *argv[]) {
       std::cout << "WS open\n";
       connected = true;
       connStatus = "Connected";
+      json j = { {"type", "join"}, {"name", name} };
+      ws.sendText(j.dump());
     } else if (msg->type == ix::WebSocketMessageType::Message) {
       try {
         auto j = json::parse(msg->str);
@@ -144,12 +146,6 @@ int main(int argc, char *argv[]) {
     std::cerr << "warning: websocket did not open in time" << std::endl;
   }
 
-  // send join
-  {
-    json j = { {"type", "join"}, {"name", name} };
-    ws.sendText(j.dump());
-  }
-
   if (headless) {
     // simple scripted moves, print events
     std::cout << "Running headless client to " << server << " as " << name << std::endl;
@@ -160,16 +156,16 @@ int main(int argc, char *argv[]) {
     }
     if (selfID.empty()) std::cout << "warning: did not receive join_ack, proceeding anyway" << std::endl;
 
-    // run for a short while, send a move every 200ms
-    for (int i = 0; i < 10; ++i) {
+    // run indefinitely until killed by the test runner
+    int i = 0;
+    while (true) {
       std::this_thread::sleep_for(200ms);
+      // Alterner droite/gauche pour bouger un peu
       json mv = {{"type", "move"}, {"dir", (i%2==0?"right":"left")}};
       ws.sendText(mv.dump());
+      i++;
     }
-    // wait a bit to see events
-    std::this_thread::sleep_for(500ms);
-    ws.stop();
-    ix::uninitNetSystem();
+    // Ce code ne sera jamais atteint, le processus sera tué par le test Go
     return 0;
   }
 
