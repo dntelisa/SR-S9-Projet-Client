@@ -14,6 +14,7 @@
 #include <vector>
 #include <string>
 #include <chrono>
+#include <algorithm>
 
 using json = nlohmann::json;
 using namespace std::chrono_literals;
@@ -279,8 +280,24 @@ int main(int argc, char *argv[]) {
     DrawRectangle(sx-6, sy-6, 150, 120, Fade(LIGHTGRAY, 0.1f));
     DrawText("Scores:", sx, sy, 12, DARKGRAY);
     int line = 1;
+
+    // Copy players to a temporary vector for sorting
+    std::vector<Player> sortedPlayers;
     for (auto &kv : players) {
-      std::string t = kv.second.name + ": " + std::to_string(kv.second.score);
+        sortedPlayers.push_back(kv.second);
+    }
+
+    // Order by decreasing score, with ID as tie-breaker
+    std::sort(sortedPlayers.begin(), sortedPlayers.end(), [](const Player& a, const Player& b) {
+        if (a.score != b.score) {
+            return a.score > b.score; 
+        }
+        return a.id < b.id; 
+    });
+
+    // Display top scores
+    for (const auto &p : sortedPlayers) {
+      std::string t = p.name + ": " + std::to_string(p.score);
       DrawText(t.c_str(), sx, sy + 14*line, 12, DARKGRAY);
       line++;
       if (line > 6) break;
@@ -312,6 +329,17 @@ int main(int argc, char *argv[]) {
                 DrawText("YOU WIN!", width/2 - 80, height/2 + 40, 30, GREEN);
             } else {
                 DrawText("YOU LOSE!", width/2 - 80, height/2 + 40, 30, RED);
+                // Display the winner's name
+                std::string winnerName;
+                int highestScore = -1;
+                for (auto &kv : players) {
+                    if (kv.second.score > highestScore) {
+                        highestScore = kv.second.score;
+                        winnerName = kv.second.name;
+                    }
+                }
+                std::string winnerText = "The winner is: " + winnerName;
+                DrawText(winnerText.c_str(), width/2 - 130, height/2 + 80, 20, LIGHTGRAY);
             }
         }
     }
