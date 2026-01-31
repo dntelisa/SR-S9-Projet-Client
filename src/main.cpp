@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
   std::chrono::steady_clock::time_point prevStateTime = std::chrono::steady_clock::now();
   std::chrono::steady_clock::time_point lastStateTime = std::chrono::steady_clock::now();
   const std::chrono::milliseconds interpDuration = 120ms; // interpolation window
-  const std::chrono::milliseconds maxExtrapolation = 300ms; // clamp extrapolation
+  const std::chrono::milliseconds maxExtrapolation = 50ms; // clamp extrapolation
 
   ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr &msg) {
     if (msg->type == ix::WebSocketMessageType::Open) {
@@ -210,11 +210,7 @@ int main(int argc, char *argv[]) {
     auto now = std::chrono::steady_clock::now();
     float elapsedMs = std::chrono::duration<float, std::milli>(now - lastStateTime).count();
     float t = std::min(1.0f, elapsedMs / (float)interpDuration.count());
-    bool doExtrap = elapsedMs > interpDuration.count();
     float extraSec = 0.0f;
-    if (doExtrap) {
-      extraSec = std::min((elapsedMs - (float)interpDuration.count())/1000.0f, std::chrono::duration<float>(maxExtrapolation).count());
-    }
 
     // draw players (with interpolation/extrapolation)
     for (auto &kv : players) {
@@ -225,20 +221,8 @@ int main(int argc, char *argv[]) {
       auto itTgt = displayPos.find(p.id);
       std::pair<float,float> to = itTgt != displayPos.end() ? itTgt->second : std::make_pair(px, py);
       float ix, iy;
-      if (!doExtrap) {
-        ix = from.first + (to.first - from.first) * t;
-        iy = from.second + (to.second - from.second) * t;
-      } else {
-        auto itVel = velocity.find(p.id);
-        if (itVel != velocity.end()) {
-          ix = to.first + itVel->second.first * extraSec;
-          iy = to.second + itVel->second.second * extraSec;
-        } else {
-          ix = to.first;
-          iy = to.second;
-        }
-      }
-      // clamp to grid
+      ix = from.first + (to.first - from.first) * t;
+      iy = from.second + (to.second - from.second) * t;      // clamp to grid
       ix = std::max(0.0f, std::min((float)(cols-1), ix));
       iy = std::max(0.0f, std::min((float)(rows-1), iy));
       int cx = (int)(ix*cellW + cellW/2);
