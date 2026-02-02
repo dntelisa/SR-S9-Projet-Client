@@ -15,6 +15,8 @@
 #include <string>
 #include <chrono>
 #include <algorithm>
+#include <cstdlib> 
+#include <ctime>   
 
 using json = nlohmann::json;
 using namespace std::chrono_literals;
@@ -47,6 +49,7 @@ int main(int argc, char *argv[]) {
   std::deque<std::string> eventLog;
   std::atomic<bool> joined{false};
   std::string connStatus = "Disconnected";
+  std::chrono::steady_clock::time_point gameOverTime;
   std::map<std::string, std::pair<float,float>> displayPos; // current displayed (possibly interpolated) positions
   std::map<std::string, std::pair<float,float>> prevPos;    // previous positions for interpolation
   std::map<std::string, std::pair<float,float>> velocity;   // cells per second
@@ -101,6 +104,21 @@ int main(int argc, char *argv[]) {
           }
           prevStateTime = now;
           lastStateTime = now;
+          if (connStatus == "GAME OVER") {
+          // On vérifie combien de temps s'est écoulé depuis le Game Over
+             auto now = std::chrono::steady_clock::now();
+             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - gameOverTime).count();
+             
+             // Si ça fait moins de 4 secondes, on IGNORE ce state (on reste en Game Over visuellement)
+             // Le serveur fait une pause de 5s, donc 4s est une bonne marge de sécurité.
+             if (elapsed < 4) {
+                 return; // On sort de la fonction, on ne met pas à jour l'affichage
+             }
+
+             // Sinon, c'est bon, on reprend
+             connStatus = "Joined: " + selfID;
+          }
+
         } else if (t == "event") {
           std::string ev = j.dump();
           // push to log, keep small buffer
@@ -110,6 +128,7 @@ int main(int argc, char *argv[]) {
         } else if (t == "game_over") {
           std::cout << "GAME OVER!" << std::endl;
           connStatus = "GAME OVER";
+          gameOverTime = std::chrono::steady_clock::now();
           // Add variable "isGameOver" to indicate game over state and release display 
         } else {
           std::cout << "msg: " << j.dump() << std::endl;
@@ -147,25 +166,35 @@ int main(int argc, char *argv[]) {
   }
 
   if (headless) {
-    // simple scripted moves, print events
     std::cout << "Running headless client to " << server << " as " << name << std::endl;
-    // wait for join ack (selfID) or timeout
+    
+    // Attendre le join_ack
     auto waitDeadline = std::chrono::steady_clock::now() + 1000ms;
     while (selfID.empty() && std::chrono::steady_clock::now() < waitDeadline) {
       std::this_thread::sleep_for(50ms);
     }
-    if (selfID.empty()) std::cout << "warning: did not receive join_ack, proceeding anyway" << std::endl;
+    
+    // Initialiser l'aléatoire avec une graine unique par bot (Basée sur l'heure + le nom)
+    // Cela évite que tous les bots fassent exactement les mêmes mouvements en même temps
+    std::srand(std::time(nullptr) + std::hash<std::string>{}(name));
 
-    // run indefinitely until killed by the test runner
-    int i = 0;
+    // Liste des directions possibles
+    const std::string dirs[] = {"up", "down", "left", "right"};
+
+    // Boucle infinie de mouvements aléatoires
     while (true) {
-      std::this_thread::sleep_for(200ms);
-      // Alterner droite/gauche pour bouger un peu
-      json mv = {{"type", "move"}, {"dir", (i%2==0?"right":"left")}};
+      // Pause aléatoire entre 200ms et 500ms pour varier les vitesses
+      int sleepMs = 200 + (std::rand() % 300);
+      std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+
+      // Choisir une direction au hasard (0 à 3)
+      int r = std::rand() % 4;
+      std::string dir = dirs[r];
+
+      json mv = {{"type", "move"}, {"dir", dir}};
       ws.sendText(mv.dump());
-      i++;
     }
-    // Ce code ne sera jamais atteint, le processus sera tué par le test Go
+    
     return 0;
   }
 
