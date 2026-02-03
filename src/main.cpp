@@ -4,9 +4,9 @@
 #include <ixwebsocket/IXUserAgent.h>
 #include <nlohmann/json.hpp>
 
-#include <iostream>
+#include <iostream> 
 #include <thread>
-#include <atomic>
+#include <atomic> // for simple variable thread safety
 #include <mutex>
 #include <unordered_map>
 #include <map>
@@ -18,9 +18,11 @@
 #include <cstdlib> 
 #include <ctime>   
 
+// translate nlohmann::json to json for brevity
 using json = nlohmann::json;
 using namespace std::chrono_literals;
 
+// Mirror of server-side structs
 struct Player { std::string id; std::string name; int x; int y; int score; };
 struct Sweet { std::string id; int x; int y; };
 
@@ -38,18 +40,20 @@ int main(int argc, char *argv[]) {
 
   ix::initNetSystem();
   ix::WebSocket ws;
-  ws.setUrl(server);
-  std::mutex mu;
-  std::unordered_map<std::string, Player> players;
+  ws.setUrl(server); // WebSocket server URL
+  std::mutex mu; // Protecting access to the model is useful because we are simultaneously manipulating the reader for display and the network.
+  std::unordered_map<std::string, Player> players; // id -> Player, map faster for lookups
   std::unordered_map<std::string, Sweet> sweets;
   std::string selfID;
-  std::atomic<bool> connected{false};
+  std::atomic<bool> connected{false}; // connection state thread-safe
 
   // UI/State helpers
-  std::deque<std::string> eventLog;
+  std::deque<std::string> eventLog; 
   std::atomic<bool> joined{false};
   std::string connStatus = "Disconnected";
   std::chrono::steady_clock::time_point gameOverTime;
+
+  // interpolation state
   std::map<std::string, std::pair<float,float>> displayPos; // current displayed (possibly interpolated) positions
   std::map<std::string, std::pair<float,float>> prevPos;    // previous positions for interpolation
   std::map<std::string, std::pair<float,float>> velocity;   // cells per second
@@ -58,17 +62,23 @@ int main(int argc, char *argv[]) {
   const std::chrono::milliseconds interpDuration = 120ms; // interpolation window
   const std::chrono::milliseconds maxExtrapolation = 50ms; // clamp extrapolation
 
+  // WebSocket message handler, runs in its own thread, wakes up on incoming messages
+  // [&] permits access to external variables by reference
   ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr &msg) {
+    // handle message based on type
     if (msg->type == ix::WebSocketMessageType::Open) {
+      // If connection is open, send join message
       std::cout << "WS open\n";
       connected = true;
       connStatus = "Connected";
+      // Send join request
       json j = { {"type", "join"}, {"name", name} };
       ws.sendText(j.dump());
     } else if (msg->type == ix::WebSocketMessageType::Message) {
       try {
         auto j = json::parse(msg->str);
         std::string t = j.value("type", "");
+        // If server sent a join_ack, record our player ID
         if (t == "join_ack") {
           selfID = j.value("id", "");
           joined = true;
@@ -77,16 +87,17 @@ int main(int argc, char *argv[]) {
         } else if (t == "state") {
           // update model and interpolation targets
           auto now = std::chrono::steady_clock::now();
-          std::lock_guard<std::mutex> lk(mu);
+          std::lock_guard<std::mutex> lk(mu); // lock model during update to avoid problem when the UI thread reads it to draw game
           // compute dt in seconds since previous state
           float dt = std::max(1e-3f, std::chrono::duration<float>(now - prevStateTime).count());
 
-          // record previous positions
+          // record previous positions -> interpolation
           for (auto &kv : players) {
             prevPos[kv.first] = displayPos.count(kv.first) ? displayPos[kv.first] : std::make_pair((float)kv.second.x, (float)kv.second.y);
           }
-          players.clear(); sweets.clear();
+          players.clear(); sweets.clear(); // clean all and refill, it for the case of a player has left
           for (auto &p : j["players"]) {
+            // Recreate player
             Player pl{p.value("id", ""), p.value("name", ""), p.value("x", 0), p.value("y", 0), p.value("score", 0)};
             players[pl.id] = pl;
             auto tgt = std::make_pair((float)pl.x, (float)pl.y);
@@ -105,17 +116,17 @@ int main(int argc, char *argv[]) {
           prevStateTime = now;
           lastStateTime = now;
           if (connStatus == "GAME OVER") {
-          // On vérifie combien de temps s'est écoulé depuis le Game Over
+            // Check how long since game over
              auto now = std::chrono::steady_clock::now();
              auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - gameOverTime).count();
              
-             // Si ça fait moins de 4 secondes, on IGNORE ce state (on reste en Game Over visuellement)
-             // Le serveur fait une pause de 5s, donc 4s est une bonne marge de sécurité.
+             // If it's been less than 4 seconds, we IGNORE this state (we remain visually in Game Over)
+             // The server pauses for 5 seconds, so 4 seconds is a good safety margin.
              if (elapsed < 4) {
-                 return; // On sort de la fonction, on ne met pas à jour l'affichage
+                 return; // We exit the function; we do not update the display.
              }
 
-             // Sinon, c'est bon, on reprend
+             // Otherwise let's start again
              connStatus = "Joined: " + selfID;
           }
 
@@ -129,7 +140,6 @@ int main(int argc, char *argv[]) {
           std::cout << "GAME OVER!" << std::endl;
           connStatus = "GAME OVER";
           gameOverTime = std::chrono::steady_clock::now();
-          // Add variable "isGameOver" to indicate game over state and release display 
         } else {
           std::cout << "msg: " << j.dump() << std::endl;
         }
@@ -151,43 +161,44 @@ int main(int argc, char *argv[]) {
 
   // enable automatic reconnection (useful for transient network issues)
   ws.enableAutomaticReconnection();
-  ws.setMinWaitBetweenReconnectionRetries(1);
-  ws.setMaxWaitBetweenReconnectionRetries(5);
-  ws.start();
+  ws.setMinWaitBetweenReconnectionRetries(1); // if connection drops, retry in 1 second
+  ws.setMaxWaitBetweenReconnectionRetries(5); // if connection drops, retry in 5 second
+  ws.start(); // start connection, launches network thread in background
   connStatus = "Connecting...";
 
   // wait until connection open before sending join (with timeout)
   auto openDeadline = std::chrono::steady_clock::now() + 1000ms;
   while (!connected && std::chrono::steady_clock::now() < openDeadline) {
-    std::this_thread::sleep_for(20ms);
+    std::this_thread::sleep_for(20ms); // ws.start() is instantaneous, but the actual connection takes time (a few milliseconds). We put the main thread into sleep ("Sleep") until connected becomes true (thanks to the callback) OR until we have waited more than a second (Timeout).
   }
   if (!connected) {
     std::cerr << "warning: websocket did not open in time" << std::endl;
   }
 
+  // Headless mode: simple bot that makes random moves
   if (headless) {
     std::cout << "Running headless client to " << server << " as " << name << std::endl;
     
-    // Attendre le join_ack
+    // Wait ack_join
     auto waitDeadline = std::chrono::steady_clock::now() + 1000ms;
     while (selfID.empty() && std::chrono::steady_clock::now() < waitDeadline) {
       std::this_thread::sleep_for(50ms);
     }
     
-    // Initialiser l'aléatoire avec une graine unique par bot (Basée sur l'heure + le nom)
-    // Cela évite que tous les bots fassent exactement les mêmes mouvements en même temps
+    // Initialize randomness with a unique seed per bot (based on time + name)
+    // This ensures different bots have different movement patterns
     std::srand(std::time(nullptr) + std::hash<std::string>{}(name));
 
-    // Liste des directions possibles
+    // List of possible directions
     const std::string dirs[] = {"up", "down", "left", "right"};
 
-    // Boucle infinie de mouvements aléatoires
+    // Infinite loop of random moves
     while (true) {
-      // Pause aléatoire entre 200ms et 500ms pour varier les vitesses
+      // Random pauses between 200ms and 500ms to vary the speeds
       int sleepMs = 200 + (std::rand() % 300);
       std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
 
-      // Choisir une direction au hasard (0 à 3)
+      // Choose a direction at random (0 to 3)
       int r = std::rand() % 4;
       std::string dir = dirs[r];
 
@@ -204,7 +215,7 @@ int main(int argc, char *argv[]) {
   SetTargetFPS(60);
 
   while (!WindowShouldClose()) {
-    // input -> send moves
+    // input -> if key pressed, prepare json message and send move command
     if (IsKeyPressed(KEY_UP)) { json mv = {{"type", "move"}, {"dir", "up"}}; ws.sendText(mv.dump()); }
     if (IsKeyPressed(KEY_DOWN)) { json mv = {{"type", "move"}, {"dir", "down"}}; ws.sendText(mv.dump()); }
     if (IsKeyPressed(KEY_LEFT)) { json mv = {{"type", "move"}, {"dir", "left"}}; ws.sendText(mv.dump()); }
@@ -213,7 +224,7 @@ int main(int argc, char *argv[]) {
     BeginDrawing();
     ClearBackground(RAYWHITE);
 
-    std::lock_guard<std::mutex> lk(mu);
+    std::lock_guard<std::mutex> lk(mu); // lock model during read to avoid problem when the network thread updates it
     // draw a simple grid based on 10x10 world (server default)
     int cols = 10, rows = 10;
     int cellW = width / cols, cellH = height / rows;
@@ -233,6 +244,8 @@ int main(int argc, char *argv[]) {
 
     // compute interpolation / extrapolation factors
     auto now = std::chrono::steady_clock::now();
+
+    // compute elapsed time since last state update
     float elapsedMs = std::chrono::duration<float, std::milli>(now - lastStateTime).count();
     float t = std::min(1.0f, elapsedMs / (float)interpDuration.count());
     float extraSec = 0.0f;
@@ -246,6 +259,7 @@ int main(int argc, char *argv[]) {
       auto itTgt = displayPos.find(p.id);
       std::pair<float,float> to = itTgt != displayPos.end() ? itTgt->second : std::make_pair(px, py);
       float ix, iy;
+      // compute intermediated position
       ix = from.first + (to.first - from.first) * t;
       iy = from.second + (to.second - from.second) * t;      // clamp to grid
       ix = std::max(0.0f, std::min((float)(cols-1), ix));
